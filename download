@@ -1,0 +1,5 @@
+# Never commit real keys or workflows exported from n8n with credentials
+.env
+*.local.json
+*-with-keys.json
+node_modules/

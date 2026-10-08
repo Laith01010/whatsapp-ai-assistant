@@ -1,0 +1,313 @@
+{
+  "name": "WhatsApp AI Assistant — Medical Fitness Center (Demo)",
+  "nodes": [
+    {
+      "id": "1973deec-6d08-4488-8be4-65a40d3a2ab9",
+      "name": "WhatsApp Verify (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "721f1f3b-579c-4c7c-b0d3-b96e78133964",
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "8c82c950-83cc-4916-b26d-58b2cdb7432e",
+      "name": "Verify Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// =====================================================================\n//  Verify Token — Meta بتستدعي هاد مرة وحدة لما تربط الـ webhook\n// =====================================================================\nconst VERIFY_TOKEN = 'noor-demo-verify-123'; // نفس الكلمة اللي بتحطها بإعدادات Meta\n\nconst q = $input.first().json.query || {};\nconst ok = q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === VERIFY_TOKEN;\n\nreturn [{ json: { status: ok ? 200 : 403, body: ok ? String(q['hub.challenge']) : 'Forbidden' } }];\n"
+      }
+    },
+    {
+      "id": "e07d341f-1045-4813-b3f4-06052b5f4790",
+      "name": "Respond Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.body }}",
+        "options": {
+          "responseCode": "={{ $json.status }}"
+        }
+      }
+    },
+    {
+      "id": "c1e94018-c0fc-473c-82dc-c3e8fe5f327e",
+      "name": "WhatsApp Incoming (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        260
+      ],
+      "webhookId": "9be04c71-756d-455a-8f56-09aea2ac37f8",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "7c2af947-a6ac-4f12-ad84-45a0a05893f6",
+      "name": "Parse Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// =====================================================================\n//  Parse Message — يستقبل رسالة واتساب ويجهّز الطلب لـ Gemini\n// =====================================================================\n\n// ============ CONFIG — عدّل القيم هون فقط ============\nconst CONFIG = {\n  WHATSAPP_TOKEN: 'PUT_META_ACCESS_TOKEN_HERE',   // من Meta > WhatsApp > API Setup\n  PHONE_NUMBER_ID: 'PUT_PHONE_NUMBER_ID_HERE',    // من نفس الصفحة (مش رقم التلفون نفسه)\n  GRAPH_VERSION: 'v26.0',                         // نسخة Graph API (نفس النسخة اللي بإعدادات الـ Webhook بـ Meta)\n  GEMINI_API_KEY: 'PUT_GEMINI_API_KEY_HERE',      // من aistudio.google.com (مجاني)\n  MODEL: 'gemini-3.5-flash-lite',                 // سريع ومجاني. للجودة الأعلى: 'gemini-3.8-flash'\n  STAFF_NUMBER: '9715XXXXXXXX',                   // رقم الموظف اللي بيستلم التحويلات (بدون +)\n  HISTORY_TURNS: 6,                               // كم رسالة سابقة يتذكر البوت لكل زبون\n};\n\n// ============ KNOWLEDGE BASE — معلومات المركز (بيانات تجريبية) ============\n// كل اللي تحت DEMO. بدّلها بمعلومات الشركة الحقيقية.\nconst KNOWLEDGE_BASE = `\nCENTER: Noor Medical Fitness Center (DEMO / fictional)\nLOCATION: Ground floor, Demo Building, Al Karama, Dubai — 3 min walk from a metro station. Parking available at the back.\nWORKING HOURS: Saturday–Thursday 7:30 AM – 9:00 PM. Friday 2:00 PM – 9:00 PM.\n\nSERVICES (residency visa medical fitness test = blood test + chest X-ray):\n• Normal service: 320 AED — result within 48 hours.\n• Express service: 500 AED — result within 24 hours.\n• VIP service: 750 AED — same day result (if test done before 12:00 PM), private waiting area.\n• Visa cancellation / renewal tests follow the same packages.\n\nREQUIRED DOCUMENTS:\n• Original passport.\n• Entry permit (for new visa) or residency visa copy (for renewal).\n• Emirates ID (if available).\n• The application must be typed at a typing center first; bring the application number.\n\nPAYMENT: Cash, card, and Apple Pay accepted.\nAPPOINTMENTS: Walk-in is accepted. Booking is not required but VIP clients can book by WhatsApp with a staff member.\nRESULTS: Results are sent electronically to the immigration system and by SMS to the customer. The bot CANNOT see results or application status.\nWOMEN: Separate section and female staff available.\nLANGUAGES: Arabic, English, Hindi, Urdu, Tagalog spoken at the center.\n`.trim();\n\nconst SYSTEM_PROMPT = `You are the WhatsApp assistant for a medical fitness center. You help customers with information about visa medical tests.\n\nRULES:\n1. Answer ONLY using the KNOWLEDGE BASE below. Never invent prices, times, documents or policies.\n2. If the answer is not in the knowledge base, say a team member will help them and add [HANDOFF].\n3. Reply in the same language the customer used (Arabic dialect → simple Arabic; English → English).\n4. WhatsApp style: short (max ~6 lines), friendly, use \"•\" for lists, *single asterisks* for bold, at most one emoji. No markdown headers or tables.\n5. Never give medical advice, never interpret test results, never promise a visa outcome.\n6. You cannot see any customer records. For result status or application status, ask for the application number and add [HANDOFF].\n7. If the customer asks for a human, complains, is upset, or wants to book VIP: apologize briefly if needed, say a team member will contact them, and add [HANDOFF].\n8. If the message says the customer sent a non-text message (image, voice, file), politely ask them to type their question.\n9. [HANDOFF] must appear only at the very end of your reply, and only when needed.\n\nKNOWLEDGE BASE:\n${KNOWLEDGE_BASE}`;\n\n// ============ المنطق — ما في داعي تعدّل تحت هاد الخط ============\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || [];\nstore.chats = store.chats || {};\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const body = item.json.body || item.json;\n  const changes = (body.entry || []).flatMap(e => e.changes || []);\n\n  for (const change of changes) {\n    const value = change.value || {};\n    const messages = value.messages || [];          // تحديثات الحالة (delivered/read) ما فيها messages\n    const contacts = value.contacts || [];\n\n    for (const msg of messages) {\n      // Meta أحياناً بتعيد إرسال نفس الرسالة — نتجاهل المكرر\n      if (store.seen.includes(msg.id)) continue;\n      store.seen.push(msg.id);\n      if (store.seen.length > 300) store.seen = store.seen.slice(-300);\n\n      const from = msg.from;\n      const contact = contacts.find(c => c.wa_id === from) || contacts[0] || {};\n      const name = (contact.profile && contact.profile.name) || '';\n\n      let userText;\n      if (msg.type === 'text') {\n        userText = (msg.text && msg.text.body || '').trim();\n      } else if (msg.type === 'interactive') {\n        const i = msg.interactive || {};\n        userText = (i.button_reply && i.button_reply.title) || (i.list_reply && i.list_reply.title) || '';\n      } else if (msg.type === 'button') {\n        userText = (msg.button && msg.button.text) || '';\n      } else {\n        userText = `[The customer sent a ${msg.type} message, not text]`;\n      }\n      if (!userText) continue;\n      userText = userText.slice(0, 2000);\n\n      const history = (store.chats[from] && store.chats[from].messages) || [];\n      const conversation = [...history, { role: 'user', content: userText }];\n\n      const system = name\n        ? `${SYSTEM_PROMPT}\\n\\nCustomer WhatsApp name: ${name}`\n        : SYSTEM_PROMPT;\n\n      out.push({\n        json: {\n          from,\n          name,\n          msgId: msg.id,\n          userText,\n          cfg: CONFIG,\n          aiRequest: {\n            systemInstruction: { parts: [{ text: system }] },\n            contents: conversation.map(m => ({\n              role: m.role === 'assistant' ? 'model' : 'user',   // Gemini بيسمي ردوده \"model\"\n              parts: [{ text: m.content }],\n            })),\n            generationConfig: { maxOutputTokens: 1024, temperature: 0.3 },\n          },\n        },\n      });\n    }\n  }\n}\n\nreturn out; // إذا فاضي (مثلاً status update) الـ workflow بيوقف هون بهدوء\n"
+      }
+    },
+    {
+      "id": "733ba2f7-4d43-4dec-974b-b700dd06b95f",
+      "name": "Ask Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $json.cfg.MODEL }}:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $json.cfg.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.aiRequest) }}",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "bdc99815-5f3c-4532-ac8b-f40c1150419d",
+      "name": "Process Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        260
+      ],
+      "parameters": {
+        "jsCode": "// =====================================================================\n//  Process Reply — يقرأ رد Gemini، يحدّث الذاكرة، ويجهّز رسالة واتساب\n// =====================================================================\n\nconst FALLBACK = 'عذراً، صار عندنا خلل تقني بسيط 🙏 رح يتواصل معك أحد موظفينا قريباً.\\nSorry, we had a small technical issue. A team member will contact you shortly.';\nconst MAX_WA_LEN = 4000; // حد واتساب للرسالة النصية 4096\n\nconst store = $getWorkflowStaticData('global');\nstore.chats = store.chats || {};\n\nconst parsed = $('Parse Message').all();\nconst out = [];\n\n$input.all().forEach((item, i) => {\n  const src = parsed[i].json;\n  const res = item.json || {};\n  const cfg = src.cfg;\n\n  // نص رد Gemini (أو fallback إذا الـ API رجّع خطأ أو رد فاضي)\n  let text = '';\n  const parts = (res.candidates && res.candidates[0] && res.candidates[0].content && res.candidates[0].content.parts) || [];\n  text = parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('').trim();\n  const apiFailed = !text || !!res.error;\n\n  let handoff = apiFailed || /\\[HANDOFF\\]/i.test(text);\n  let reply = apiFailed ? FALLBACK : text.replace(/\\[HANDOFF\\]/gi, '').trim();\n  if (!reply) reply = FALLBACK;\n  if (reply.length > MAX_WA_LEN) reply = reply.slice(0, MAX_WA_LEN - 1) + '…';\n\n  // نحفظ المحادثة بس إذا الـ AI رد صح (عشان ما نخرب ترتيب user/assistant)\n  if (!apiFailed) {\n    const prev = (store.chats[src.from] && store.chats[src.from].messages) || [];\n    const updated = [...prev, { role: 'user', content: src.userText }, { role: 'assistant', content: reply }];\n    store.chats[src.from] = {\n      messages: updated.slice(-(cfg.HISTORY_TURNS * 2)),\n      updatedAt: Date.now(),\n    };\n  }\n\n  // تنظيف: نمسح المحادثات الأقدم من 24 ساعة\n  const DAY = 24 * 60 * 60 * 1000;\n  for (const [k, v] of Object.entries(store.chats)) {\n    if (!v.updatedAt || Date.now() - v.updatedAt > DAY) delete store.chats[k];\n  }\n\n  const staffText =\n    `🔔 تحويل لموظف\\n` +\n    `الزبون: ${src.name || 'بدون اسم'} (+${src.from})\\n` +\n    `رسالته: ${src.userText.slice(0, 500)}` +\n    (apiFailed ? `\\n⚠️ سبب التحويل: خطأ بالـ AI API` : '');\n\n  out.push({\n    json: {\n      to: src.from,\n      reply,\n      handoff,\n      apiFailed,\n      cfg,\n      sendRequest: {\n        messaging_product: 'whatsapp',\n        to: src.from,\n        type: 'text',\n        text: { preview_url: false, body: reply },\n      },\n      staffRequest: {\n        messaging_product: 'whatsapp',\n        to: cfg.STAFF_NUMBER,\n        type: 'text',\n        text: { preview_url: false, body: staffText },\n      },\n    },\n  });\n});\n\nreturn out;\n"
+      }
+    },
+    {
+      "id": "e7d90974-e840-4ed4-aade-2e9b30ec96dd",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        260
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $json.cfg.GRAPH_VERSION }}/{{ $json.cfg.PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.cfg.WHATSAPP_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.sendRequest) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "76c56e46-e0e5-4ded-800a-11f0c2e44ac9",
+      "name": "Needs Human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        260
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "035243c0-cf9d-49b3-9fe6-9a7a6ef08dfd",
+              "leftValue": "={{ $('Process Reply').item.json.handoff }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4b4121bf-7561-406d-8250-876ab7aa080e",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $('Process Reply').item.json.cfg.GRAPH_VERSION }}/{{ $('Process Reply').item.json.cfg.PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Process Reply').item.json.cfg.WHATSAPP_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Process Reply').item.json.staffRequest) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Verify (GET)": {
+      "main": [
+        [
+          {
+            "node": "Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Token": {
+      "main": [
+        [
+          {
+            "node": "Respond Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Incoming (POST)": {
+      "main": [
+        [
+          {
+            "node": "Parse Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Message": {
+      "main": [
+        [
+          {
+            "node": "Ask Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Gemini": {
+      "main": [
+        [
+          {
+            "node": "Process Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Needs Human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Human?": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
